@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog
 import json
 import os
 
@@ -9,9 +9,10 @@ class TranslationManager:
         self.translations = self.load_translations()
 
     def load_translations(self):
+        if not os.path.exists(self.file_path):
+            return []
         with open(self.file_path, 'r', encoding='utf-8') as file:
-            data = json.load(file)
-        return data
+            return json.load(file)
 
     def save_translations(self):
         with open(self.file_path, 'w', encoding='utf-8') as file:
@@ -23,22 +24,11 @@ class TranslationManager:
                 return translation
         return None
 
-    def add_translation(self, english, chinese):
-        new_id = len(self.translations) + 1
-        new_translation = {
-            'id': new_id,
-            'english': english.strip(),
-            'chinese': chinese.strip()
-        }
-        self.translations.append(new_translation)
-        self.save_translations()
-        return new_id
-
     def update_translation(self, translation_id, new_english, new_chinese):
         for translation in self.translations:
             if translation['id'] == translation_id:
-                translation['english'] = new_english.strip()
-                translation['chinese'] = new_chinese.strip()
+                translation['english'] = new_english
+                translation['chinese'] = new_chinese
                 self.save_translations()
                 return True
         return False
@@ -51,98 +41,168 @@ class TranslationManager:
                 return True
         return False
 
+    def add_translation(self, english, chinese):
+        new_id = max([t['id'] for t in self.translations], default=0) + 1
+        new_translation = {
+            'id': new_id,
+            'english': english,
+            'chinese': chinese
+        }
+        self.translations.append(new_translation)
+        self.save_translations()
+        return new_id
+
+    def get_all_ids(self):
+        return [t['id'] for t in self.translations]
+
 class TranslationEditorApp:
     def __init__(self, master):
         self.master = master
         self.master.title("翻譯管理系統")
-        self.master.geometry("800x600")
-
-        self.file_var = tk.StringVar()
-        self.id_var = tk.StringVar()
+        self.master.geometry("1400x700")
+        self.manager = None
 
         self.create_widgets()
-
         self.load_json_files()
 
     def create_widgets(self):
-        # 選擇檔案
-        tk.Label(self.master, text="選擇翻譯檔案:").pack(pady=10)
-        self.file_menu = tk.OptionMenu(self.master, self.file_var, "")
-        self.file_menu.pack(pady=10)
+        # Frame for JSON file operations
+        file_frame = tk.Frame(self.master)
+        file_frame.pack(pady=20)
 
-        # 輸入欄位
-        tk.Label(self.master, text="英文:").pack(pady=5)
-        self.english_entry = tk.Text(self.master, height=4, width=80)
-        self.english_entry.pack(pady=5)
+        # Dropdown for JSON files
+        tk.Label(file_frame, text="選擇翻譯文件:", font=("標楷體", 14)).pack(side=tk.LEFT, padx=5)
+        self.file_var = tk.StringVar()
+        self.file_dropdown = ttk.Combobox(file_frame, textvariable=self.file_var, state="readonly", width=40, font=("標楷體", 12))
+        self.file_dropdown.pack(side=tk.LEFT, padx=10)
+        self.file_dropdown.bind("<<ComboboxSelected>>", self.load_file)
 
-        tk.Label(self.master, text="中文:").pack(pady=5)
-        self.chinese_entry = tk.Text(self.master, height=4, width=80)
-        self.chinese_entry.pack(pady=5)
+        # Button to add JSON file
+        add_file_button = tk.Button(file_frame, text="新增 JSON 檔案", command=self.add_json_file, font=("標楷體", 12), width=15)
+        add_file_button.pack(side=tk.LEFT, padx=10)
 
-        # 選擇 ID
-        tk.Label(self.master, text="選擇翻譯編號:").pack(pady=10)
-        self.id_menu = tk.OptionMenu(self.master, self.id_var, "")
-        self.id_menu.pack(pady=10)
+        # Button to delete JSON file
+        delete_file_button = tk.Button(file_frame, text="刪除 JSON 檔案", command=self.delete_json_file, font=("標楷體", 12), width=15)
+        delete_file_button.pack(side=tk.LEFT, padx=10)
 
-        # 操作按鈕
-        tk.Button(self.master, text="新增例句", command=self.add_translation).pack(pady=10)
-        tk.Button(self.master, text="更改例句", command=self.update_translation).pack(pady=10)
-        tk.Button(self.master, text="刪除例句", command=self.delete_translation).pack(pady=10)
+        # Frame for translation operations
+        translation_frame = tk.Frame(self.master)
+        translation_frame.pack(pady=30)
 
-        # 新增/刪除 JSON 檔案
-        tk.Button(self.master, text="新增翻譯檔案", command=self.add_json_file).pack(pady=5)
-        tk.Button(self.master, text="刪除翻譯檔案", command=self.delete_json_file).pack(pady=5)
+        # Dropdown for translation IDs
+        tk.Label(translation_frame, text="選擇例句 ID:", font=("標楷體", 14)).grid(row=0, column=0, padx=10, pady=10, sticky=tk.E)
+        self.id_var = tk.StringVar()
+        self.id_dropdown = ttk.Combobox(translation_frame, textvariable=self.id_var, state="readonly", width=10, font=("標楷體", 12))
+        self.id_dropdown.grid(row=0, column=1, padx=10, pady=10)
+        self.id_dropdown.bind("<<ComboboxSelected>>", self.load_translation)
 
-        self.status_label = tk.Label(self.master, text="")
+        # English entry
+        tk.Label(translation_frame, text="英文句子:", font=("標楷體", 14)).grid(row=1, column=0, padx=10, pady=10, sticky=tk.E)
+        self.english_entry = tk.Text(translation_frame, wrap=tk.WORD, width=100, height=4, font=("標楷體", 12))
+        self.english_entry.grid(row=1, column=1, padx=10, pady=10)
+
+        # Chinese entry
+        tk.Label(translation_frame, text="中文翻譯:", font=("標楷體", 14)).grid(row=2, column=0, padx=10, pady=10, sticky=tk.E)
+        self.chinese_entry = tk.Text(translation_frame, wrap=tk.WORD, width=100, height=4, font=("標楷體", 12))
+        self.chinese_entry.grid(row=2, column=1, padx=10, pady=10)
+
+        # Buttons for add/update
+        button_frame = tk.Frame(translation_frame)
+        button_frame.grid(row=3, column=1, pady=20)
+
+        add_button = tk.Button(button_frame, text="新增/更新例句", command=self.add_or_update_translation, font=("標楷體", 12), width=20)
+        add_button.pack(side=tk.LEFT, padx=20)
+
+        delete_button = tk.Button(button_frame, text="刪除例句", command=self.delete_translation, font=("標楷體", 12), width=20)
+        delete_button.pack(side=tk.LEFT, padx=20)
+
+        # Status label
+        self.status_label = tk.Label(self.master, text="", font=("標楷體", 12), fg="green")
         self.status_label.pack(pady=10)
 
     def load_json_files(self):
-        self.file_var.set('')
-        files = [f for f in os.listdir('translations') if f.endswith('.json')]
-        self.file_menu['menu'].delete(0, 'end')
-        for file in files:
-            self.file_menu['menu'].add_command(label=file, command=tk._setit(self.file_var, file))
-        if files:
-            self.file_var.set(files[0])
-            self.load_translations()
+        folder_path = 'translations'
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+        self.json_files = [f for f in os.listdir(folder_path) if f.endswith('.json')]
+        self.file_dropdown['values'] = self.json_files
+        if self.json_files:
+            self.file_dropdown.current(0)
+            self.load_file(self.json_files[0])
 
-    def load_translations(self):
-        selected_file = self.file_var.get()
-        if selected_file:
-            file_path = os.path.join('translations', selected_file)
-            self.manager = TranslationManager(file_path)
-            self.load_translation_ids()
+    def load_file(self, selected_file):
+        file_path = os.path.join('translations', selected_file)
+        self.manager = TranslationManager(file_path)
+        self.status_label.config(text=f"成功載入文件: {selected_file}")
+        self.load_translation_ids()
 
     def load_translation_ids(self):
-        self.id_var.set('')
-        self.id_menu['menu'].delete(0, 'end')
-        for translation in self.manager.translations:
-            translation_id = translation['id']
-            self.id_menu['menu'].add_command(label=translation_id, command=tk._setit(self.id_var, translation_id))
+        if self.manager:
+            ids = self.manager.get_all_ids()
+            self.id_dropdown['values'] = ids
+            if ids:
+                self.id_dropdown.current(0)
+                self.load_translation()
+            else:
+                self.clear_entries()
 
-    def add_translation(self):
+    def load_translation(self, event=None):
+        if not self.manager:
+            return
+        try:
+            translation_id = int(self.id_var.get())
+            translation = self.manager.get_translation_by_id(translation_id)
+            if translation:
+                self.english_entry.delete("1.0", tk.END)
+                self.english_entry.insert(tk.END, translation['english'].strip())
+                self.chinese_entry.delete("1.0", tk.END)
+                self.chinese_entry.insert(tk.END, translation['chinese'].strip())
+        except ValueError:
+            pass
+
+    def add_or_update_translation(self):
+        if not self.manager:
+            messagebox.showwarning("警告", "請先選擇一個 JSON 檔案。")
+            return
+
         english = self.english_entry.get("1.0", tk.END).strip()
         chinese = self.chinese_entry.get("1.0", tk.END).strip()
 
-        if english and chinese:
+        # 自動移除多餘空白和 \n
+        english = ' '.join(english.split())
+        chinese = ' '.join(chinese.split())
+
+        if not english and not chinese:
+            messagebox.showwarning("警告", "英文和中文欄位皆為空，無法新增或更新。")
+            return
+
+        selected_id = self.id_var.get()
+        if selected_id:
+            try:
+                translation_id = int(selected_id)
+                if english and chinese:
+                    updated = self.manager.update_translation(translation_id, english, chinese)
+                    if updated:
+                        self.status_label.config(text=f"成功更新編號為 {translation_id} 的翻譯。")
+                        self.load_translation_ids()
+                    else:
+                        messagebox.showerror("錯誤", "更新失敗。")
+                elif not english and not chinese:
+                    # 刪除該翻譯
+                    confirm = messagebox.askyesno("確認刪除", f"確定要刪除編號為 {translation_id} 的翻譯嗎？")
+                    if confirm:
+                        deleted = self.manager.delete_translation(translation_id)
+                        if deleted:
+                            self.status_label.config(text=f"成功刪除編號為 {translation_id} 的翻譯。")
+                            self.load_translation_ids()
+                        else:
+                            messagebox.showerror("錯誤", "刪除失敗。")
+            except ValueError:
+                messagebox.showerror("錯誤", "無效的翻譯編號。")
+        else:
             new_id = self.manager.add_translation(english, chinese)
             self.status_label.config(text=f"成功新增翻譯，編號為 {new_id}。")
             self.load_translation_ids()
-        else:
-            self.status_label.config(text="請輸入英文和中文句子。")
-
-    def update_translation(self):
-        selected_id = self.id_var.get()
-        english = self.english_entry.get("1.0", tk.END).strip()
-        chinese = self.chinese_entry.get("1.0", tk.END).strip()
-
-        if selected_id and english and chinese:
-            updated = self.manager.update_translation(int(selected_id), english, chinese)
-            if updated:
-                self.status_label.config(text=f"成功更新編號為 {selected_id} 的翻譯。")
-                self.load_translation_ids()
-        else:
-            self.status_label.config(text="請選擇翻譯編號並輸入中英文句子。")
 
     def delete_translation(self):
         selected_id = self.id_var.get()
